@@ -1,0 +1,282 @@
+//This file is the Surface Evolver code for a pendant drop with an elastocapillary interface
+//Energy computation method are classical interfacial tension, and neo-Hookean energy using the method neo-hookean
+
+PARAMETER RATIO = 0.3 //Ratio Rn/R0
+PARAMETER ELASTIC_MOD = 1. //Elastocapillary number alpha
+PARAMETER bubble_vol = 1.0 //Bubble volume of the enclosing sphere
+PARAMETER droplet_radius = (3.*bubble_vol/4./3.14159)**(1./3.) //Apex radius of the drop / equivalent radius of the enclosing sphere
+PARAMETER RMAX = RATIO*droplet_radius // Needle radius
+define facet attribute poisson_ratio real //declaration of the Poisson ratio
+define facet attribute first real //declaration of the first right Cauchy-Green tensor invariant I_C
+define facet attribute second real //declaration of the second right Cauchy-Green tensor invariant II_C
+define facet attribute third real //intermediate value to make other computations easier and more compact
+define facet attribute fourth real //declaration of the stretch amplitude for every facet
+define facet attribute psi real //declaration of the stretch anisotropy for every facet
+define facet attribute frgb real[3] //declaration of the color parameter for facet display
+define facet attribute centroid real[3] //declaration of the centroid of eve ry facet
+define facet attribute form_factors real[3] //definition of the form factors of every facet in its reference shape
+define facet attribute new_form_factors real[3] //definition of the form factors of every facet in its deformed shape
+define vertex attribute ref_coord real[3] //declaration of the coordinates of every vertex in the reference shape
+define vertex attribute new_coord real[3] //declaration of the coordiantes of every vertex in the deformed shape
+define vertex attribute old_vid  integer //declaration of extra attributes so that newly created vertices inherit their reference positions
+define edge   attribute old_eid  integer
+define mata real [3][3]
+define facet attribute neo_lambda real //declaration of the first Lamé coefficient
+define facet attribute neo_mu real //declaration of the second lamé coefficient
+quantity stretch  energy modulus 0 method neo_hookean global //declaration of the elastic energy using the numerical method neo_hookean
+//Note : in the first step, the shape is relaxed with surface tension only, setting the prefactor called 'modulus' to 0
+//In the second step, the reference shape is defined using the relaxed drop shape and 'modulus' is given a non-zero value
+
+
+constraint 1
+formula z=0
+// exit plane of the tube where the bubble is suspended
+constraint 2
+// contour of the tube where the bubble is suspended. Tube center at x=1/2
+formula (x-1/2)^2+(y-1/2)^2=RMAX*RMAX
+
+vertices
+1 0.0 0.0 0.0
+2 1.0 0.0 0.0
+3 1.0 1.0 0.0 
+4 0.0 1.0 0.0
+5 0.0 0.0 1.0 
+6 1.0 0.0 1.0
+7 1.0 1.0 1.0 
+8 0.0 1.0 1.0
+
+
+edges
+1	1 2 constraint 2 constraint 1
+2	2 3 constraint 2 constraint 1
+3	3 4 constraint 2 constraint 1
+4	4 1 constraint 2 constraint 1
+5	5 6
+6	6 7
+7	7 8
+8	8 5
+9	1 5
+10	2 6
+11	3 7
+12	4 8
+
+
+faces
+1	1 10 -5 -9 tension 1
+2	2 11 -6 -10 tension 1
+3	3 12 -7 -11 tension 1
+4	4 9 -8 -12 tension 1
+5	5 6 7 8 tension 1
+6 -4 -3 -2 -1 tension 1 constraint 1 constraint 2
+
+
+
+bodies  /* one body, defined by its oriented faces */
+1   1 2 3 4 5 6   volume bubble_vol
+
+read
+
+//Reference shape definition for all facets
+//Save reference positions of all vertices
+set_reference_state:={set vertex ref_coord[1] x;
+set vertex ref_coord[2] y;set vertex ref_coord[3] z;}
+
+//Compute new positions of vertices after deformation
+set_new_state:={set vertex new_coord[1] x;
+set vertex new_coord[2] y;set vertex new_coord[3] z;}
+
+//Computation of form factors in reference configuration for every facet using vertices reference coordinates
+set_form_factors := {
+foreach facet ff do 
+{ set ff.form_factors[1]  
+          (ff.vertex[2].ref_coord[1] - ff.vertex[1].ref_coord[1])^2
+        + (ff.vertex[2].ref_coord[2] - ff.vertex[1].ref_coord[2])^2
+        + (ff.vertex[2].ref_coord[3] - ff.vertex[1].ref_coord[3])^2;
+  set ff.form_factors[2]  
+          (ff.vertex[2].ref_coord[1] - ff.vertex[1].ref_coord[1])
+         *(ff.vertex[3].ref_coord[1] - ff.vertex[1].ref_coord[1])
+        + (ff.vertex[2].ref_coord[2] - ff.vertex[1].ref_coord[2])
+         *(ff.vertex[3].ref_coord[2] - ff.vertex[1].ref_coord[2])
+        + (ff.vertex[2].ref_coord[3] - ff.vertex[1].ref_coord[3])
+         *(ff.vertex[3].ref_coord[3] - ff.vertex[1].ref_coord[3]);
+  set ff.form_factors[3]  
+          (ff.vertex[3].ref_coord[1] - ff.vertex[1].ref_coord[1])^2
+        + (ff.vertex[3].ref_coord[2] - ff.vertex[1].ref_coord[2])^2
+        + (ff.vertex[3].ref_coord[3] - ff.vertex[1].ref_coord[3])^2;
+  set ff.third 0;
+  set ff.fourth 0;
+  set ff.psi 0;}
+}
+
+//Computation of form factors in deformed configuration for every facet using vertices reference coordinates
+set_new_form_factors := {
+foreach facet ff do 
+{ set ff.new_form_factors[1]  
+          (ff.vertex[2].new_coord[1] - ff.vertex[1].new_coord[1])^2
+        + (ff.vertex[2].new_coord[2] - ff.vertex[1].new_coord[2])^2
+        + (ff.vertex[2].new_coord[3] - ff.vertex[1].new_coord[3])^2;
+  set ff.new_form_factors[2]  
+          (ff.vertex[2].new_coord[1] - ff.vertex[1].new_coord[1])
+         *(ff.vertex[3].new_coord[1] - ff.vertex[1].new_coord[1])
+        + (ff.vertex[2].new_coord[2] - ff.vertex[1].new_coord[2])
+         *(ff.vertex[3].new_coord[2] - ff.vertex[1].new_coord[2])
+        + (ff.vertex[2].new_coord[3] - ff.vertex[1].new_coord[3])
+         *(ff.vertex[3].new_coord[3] - ff.vertex[1].new_coord[3]);
+  set ff.new_form_factors[3]  
+          (ff.vertex[3].new_coord[1] - ff.vertex[1].new_coord[1])^2
+        + (ff.vertex[3].new_coord[2] - ff.vertex[1].new_coord[2])^2
+        + (ff.vertex[3].new_coord[3] - ff.vertex[1].new_coord[3])^2;}
+}
+
+//redefinition of the refinement procedure
+//the newly created vertices will not have any reference position, because they did not exist at time of the definition of the reference shape
+//with this modified routine, they are given a reference position based on the interpolation between the previously existing vertices
+r :::= { 
+     set vertex old_vid id;set edge old_eid id;'r'; 
+     foreach vertex vv where old_vid == 0 do
+     { vv.ref_coord[1] := 
+          avg(vv.edge ee where old_eid != 0,sum(ee.vertex where old_vid != 0,
+                    ref_coord[1]));
+       vv.ref_coord[2] := 
+          avg(vv.edge ee where old_eid != 0,sum(ee.vertex where old_vid != 0,
+                    ref_coord[2]));
+       vv.ref_coord[3] := 
+          avg(vv.edge ee where old_eid != 0,sum(ee.vertex where old_vid != 0,
+                    ref_coord[3]));
+     };
+     set_form_factors;recalc;
+}
+
+//Minimisation steps until relative energy decrease for 100 steps is under a threshold
+gg:={E0:=sum(facets,area*tension)+sum(facets,stretch);
+g 100;Ebis:=sum(facets,area*tension)+sum(facets,stretch);
+while abs(E0-Ebis)/E0>1e-8 do{E0:=Ebis;
+g 100;Ebis:=sum(facets,area*tension)+sum(facets,stretch);
+}}
+
+
+//Compute deformation quantifiers at deformed configuration
+//ff.first : first invariant of deformation
+//ff.second : second invariant of deformation
+//ff.third : intermediate value to ease following computations
+//ff.fourth : stretch amplitude
+//ff.psi : stretch anisotropy
+update_deformation:={
+set_new_state;set_new_form_factors;
+foreach facet ff do
+	{nenner:= -ff.form_factors[2]^2+ff.form_factors[1]*ff.form_factors[3];
+	ff.first:=(ff.form_factors[3]*ff.new_form_factors[1] - 2 *ff.form_factors[2] * ff.new_form_factors[2] +ff.form_factors[1]* ff.new_form_factors[3])/nenner;
+	ff.second:=-(ff.new_form_factors[2]^2- ff.new_form_factors[1]*ff.new_form_factors[3])/nenner;
+	ff.third:=ff.first/2;
+	ff.fourth:=0.5*sqrt(ff.first*ff.first-4.*ff.second);
+	ff.psi:= ff.fourth/ff.third};
+}
+
+//Change color of facets by stretch amplitude color-code
+col_p:={update_deformation;
+foreach facet ff do {set ff.frgb[1] 1-ff.third*2;set ff.frgb[2] ff.third*2;};
+rgb_colors;
+}
+
+//Change color of facets by stretch anisotropy color-code
+col_psi:={update_deformation;
+foreach facet ff do {set ff.frgb[1] 1-ff.psi;set ff.frgb[2] ff.psi;};
+rgb_colors;
+}
+
+//Change color with a different color if anisotropy crosses a threshold
+col_thresh:={update_deformation;rgb_colors off;
+foreach facet ff do{if ff.first*ff.first-4.*ff.second>0.01 then set ff.color 10;}
+}
+
+//Print average deformation invariants, average and maximal stretch amplitude and anisotropy 
+talk:={
+update_deformation;
+printf "IC = %f\n",avg(facets,first);
+printf "IIC = %f\n",avg(facets,second);
+printf "Isotropy criterion = %f\n",avg(facets,first*first-4*second);
+printf "p = %f, pmax = %f\n",avg(facets,third),max(facets,third);
+printf "Psi = %f, Psimax = %f\n",avg(facets,psi),max(facets,psi);}
+
+
+//Elastic skin properties defined here  
+//Shift body from purely capillary to elastocapillary
+//Define the elastic parameters : modulus, poisson ratio, Lamé parameters in Neo-Hooke model
+refer:={
+	stretch.modulus :=ELASTIC_MOD;
+	set facet poisson_ratio 0.5;
+	set facet neo_mu 1; 
+	set facet neo_lambda 1000000000000; // 3D lambda
+	set_reference_state;
+	set_form_factors;
+	st:=1;
+	foreach facet ff do ff.tension:=st;
+	}
+
+//Array of successive volumes of the enclosing sphere during inflation procedure
+define V0 real[50];
+V0:={1.  , 1.05, 1.1 , 1.15, 1.2 , 1.25, 1.3 , 1.35, 1.4 , 1.45, 1.5 ,
+       1.55, 1.6 , 1.65, 1.7 , 1.75, 1.8 , 1.85, 1.9 , 1.95, 2.  , 2.05,
+       2.1 , 2.15, 2.2 , 2.25, 2.3 , 2.35, 2.4 , 2.45, 2.5 , 2.55, 2.6 ,
+       2.65, 2.7 , 2.75, 2.8 , 2.85, 2.9 , 2.95, 3.  , 3.05, 3.1 , 3.15,
+       3.2 , 3.25, 3.3 , 3.35, 3.4 , 3.45}
+
+// The array Vd is the volumes of droplets with corresonding spheres volumes V0, with the needle radius given by RMAX 
+define Vd real[sizeof(V0)];
+counter:=0;
+while counter<sizeof(V0) do{Rtemp :=(3.*V0[counter+1]/4./3.14159)**(1./3.);
+if Rtemp-RMAX<0 then Vd[counter+1]:=0.001
+else {htemp := Rtemp-((Rtemp*Rtemp-RMAX*RMAX)**0.5);Vcap := 3.14159/6.*htemp*(3*RATIO*RATIO*Rtemp*Rtemp+htemp*htemp);
+Vd[counter+1]:= V0[counter+1]-Vcap};
+counter:=counter+1}
+//define Vd0
+Rtemp0 := (3./4./3.14159)**(1./3.);
+htemp0 := Rtemp0-((Rtemp0*Rtemp0-RMAX*RMAX)**0.5);Vcap0 := 3.14159/6.*htemp0*(3*RATIO*RATIO*Rtemp0*Rtemp0+htemp0*htemp0);
+Vd0 := 1.0-Vcap0;
+set body[1].target Vd0;
+
+//Start procedure of relaxation towards a shape driven by interfacial tension only
+start:={r;unset vertex[14] constraint 2; g 100;r;gg;w 0.001;
+fix vertex where on_constraint 1;
+U;gg;w 0.001;gg;w 0.001;gg;r;gg;w 1e-6;
+stretch.modulus := 1;set facet poisson_ratio 0.50;
+A0:=sum(facets,area)-3.14159*RMAX*RMAX;
+}
+
+//relax specifically the facets of the flat surface connected to the needle
+myV := {foreach facet ff where ff.color==15 do fix ff.vertex;
+	unfix vertex where on_constraint 2;
+        V 3; unfix vertex;fix vertex where on_constraint 2;};
+
+//relax specifically the flat surface, and then the facets of the surface close to the needle
+//mesh close to the needle needs extra attention to keep an homogeneous tiling
+//problematic mesh of the interface can be detected by very irregular (i.e. elongated) facets
+//it can makes the convergence more difficult and stuck the system in an unphysical energy minimum
+myCL := { myV; 
+foreach facet ff where ff.color==blue do fix ff.vertex;
+V 3; unfix vertex};
+
+//Inflation procedure
+grow:={
+stop:=sizeof(V0);nn:=0;fname:="./droplet_inflation.out";
+printf "#V0 Req Rn Gamma Modulus Poisson Lambda Mu Vd Ad P Ad0 Ratio\n" >> fname;
+while nn<stop do{
+	set body[1].target Vd[nn+1];
+	gg;col_psi;
+	//the output line has to be put inside the loop
+	//because of the V0[nn+1], which requires nn to be defined
+	printf "%f %f %f %11.6f %f %f %f %f %f %f %f %f %f \n ",
+	V0[nn+1],(3.*V0[nn+1]/4./3.14159)**(1./3.), RMAX,
+	facet[1].tension,ELASTIC_MOD,facet[10].poisson_ratio,
+	facet[10].neo_lambda,facet[10].neo_mu,Vd[nn+1],sum(facets,area)-3.14159*RMAX*RMAX,
+	body[1].pressure,A0,RATIO>>fname;
+	nn:=nn+1;
+	};
+gg;gg; col_psi;}
+
+//Main function : relaxe the shape, set reference shape, make inflation
+gogo:={start;myCl 20;myV 20;refer;grow}
+
+s
+q
+gogo;
